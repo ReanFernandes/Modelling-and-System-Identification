@@ -1,0 +1,177 @@
+% load data
+load('exercise8_task1_data'); 
+% loading control: u (dims = 299x2), x, y coordinate measurements: xy_meas (dims = 300X2)
+
+
+% define parameters
+N = 300;
+dT = 0.01;
+t = ((1:N)*dT ).';
+
+x0 = [0 0 0]';
+
+sigma_meas = [1.6e-3, 4e-4];
+% include initial guess of the parameters, because we know them from task1
+theta_guess = [0.2, 0.2, 0.6];
+
+% used to test the function implementation
+residual_test = residual(theta_guess, x0, u, t, xy_meas, sigma_meas);
+
+% define the options for lsqnonlin
+options = optimset('Display','iter-detailed', 'MaxIter', 2000, 'MaxFunEvals', 2000); 
+
+% (3) call lsqnonlin with the correct input arguments. Hint: use 'doc lsqnonlin' in the Matlab console for complete documentation. 
+% Attention: lsqnonlin returns the sparse jacobian J_thetaHat which can be converted to a full Jacobian using the function full()
+% it also returns the weighted residual res
+% The above mentioned return values can be helpful for task 6 (Grader)/ f) (Sheet)
+fun = @(theta) residual(theta, x0, u, t, xy_meas, sigma_meas);
+[thetaHat, resnorm, res, ~, ~, ~, J_thetaHat] = lsqnonlin(fun, theta_guess);
+% (4) simulate with our estimated parameters
+% Same as above: give the correct parameters to simulate with your parameter estimates theta^*
+[sim_trajectory] = sim(t, x0, u, @rk4_step, @robot_ode, thetaHat);
+% estimate the trajectory using a 4th order polynomial fit
+Phi = t.^(0:4);
+ThetaLLS = (Phi'*Phi)\Phi'*xy_meas;
+LLS_trajectory = Phi*ThetaLLS;
+
+% Plot the known data
+figure(1)
+hold on
+plot(sim_trajectory(:,1), sim_trajectory(:,2),'b',LLS_trajectory(:,1),LLS_trajectory(:,2),'-.');
+plot(xy_meas(:,1), xy_meas(:,2),'r*');
+title('Position p');
+xlabel('x [m]')
+ylabel('y [m]')
+legend('Euler Simulated Trajectory','4th Order Polynomial fit', 'Measurement Data');
+hold off
+
+% (5)Check assumptions on the noise 
+% Compute the residuals between the provided measurements and the simulated ones
+trueRes = residual(thetaHat, x0, u, t, xy_meas, sigma_meas);
+%Plot the histograms of the residuals
+figure(2);
+histogram(trueRes(:,1));
+title('Histogram of the residuals of the x coordinates');
+ylabel('frequency of occurence');
+xlabel('x [m]');
+
+figure(3);
+histogram(trueRes(:,2));
+title('Histogram of the residuals of the y coordinates');
+ylabel('frequency of occurence');
+xlabel('y [m]');
+
+% Calculating an estimate of the theta^* covariance
+d = numel(thetaHat); % number of estimated parameters
+J_thetaHat = full(J_thetaHat); % convert to full matrix
+res = res(:); % convert to vector
+
+% (6) Compute the covariance matrix. Hint: Page 52 Script
+sigma_thetaHat = (resnorm / (N - d)) * inv(J_thetaHat' * J_thetaHat);
+%% Functions-------------------------------------------------
+
+% (2) Residual Function
+function [r] = residual(theta, x0, u, t, yData, sigmaData)
+% theta          - vector containing the theta parameters
+% q0             - initial state values
+% u              - control input matrix
+% t              - is a vector Nx1 containing the discrete time steps
+% y              - the measurements matrix Nx2
+% sigma_y        - vector containing the variances of the measurements
+% Return value r - vector Nx2 containing all the residuals between the simulated values and the measurements
+
+% YOUR CODE GOES HERE:
+% compute the simulated coordinates using the integrator
+% give the correct input arguments; Note: it is not sim_rk4 as described in paper
+x_sim = sim(t, x0, u, @euler_step, @robot_ode, theta);
+% only use coordinates for output:
+y_sim = x_sim(:, 1:2);
+% compute the residuals
+r = (yData - y_sim);
+% define the weighing matrix W using sigmaData
+W = inv(diag(sigmaData .^ 0.5));
+% compute the weighted residuals, using W and the residuals vector
+r = r * W;
+end
+
+
+%% Provided Functions--------------------------
+%% (1) Robot ODE
+function [xdot] = robot_ode(x, u, p)
+% evaluates the right hand side of the ODE
+% x:        state of the robot containing: [x, y, beta] 
+% u:        applied input at that time: [w_L, w_R]
+% p:        vector with parameters defined as: [R_L, R_R, L]
+
+    beta = x(3);
+    w_L = u(1);
+    w_R = u(2);
+    R_L = p(1);
+    R_R = p(2);
+    L   = p(3);
+
+    v = (w_L*R_L + w_R*R_R)/2;
+    
+    xdot =     [ v * cos(beta); ...
+                 v * sin(beta); ...
+                 (w_L*R_L - w_R*R_R)/L ];
+end
+
+%% (2.1) Runge Kutta Order 4 step
+function [ x_next ] = rk4_step(h, x0, u, ode, p)
+% performs one Runge Kutta Order 4 integration step for a general continous ODE
+% h:        step size
+% x0:       starting position from where the step is performed
+% u:        inputs to the ODE
+% ode:      function handle (pointer) to a general continous ODE of the form x_dot =
+%           f(x,u,p)
+% p:        parameter
+
+    k1 = ode(x0, u, p);
+    k2 = ode(x0+h/2*k1, u, p);
+    k3 = ode(x0+h/2*k2, u, p);
+    k4 = ode(x0+h*k3, u, p);
+
+    x_next = x0 + h/6*(k1+2*k2+2*k3+k4);
+end
+
+%% (2.2) Euler Step function
+function [ x_next ] = euler_step(h, x0, u, ode, p)
+%EULER_STEP integrates the given ode using an euler step.
+% h:        step size
+% x0:       starting position from where the step is performed
+% u:        inputs to the ODE
+% ode:      function handle (pointer) to a general continous ODE of the
+%           form x_dot = f(x,u,p)
+% p:        parameters
+  
+    x_next = x0 + h*ode(x0, u, p);
+end
+
+%% (3) simulation
+% NOTE: it is NOT the sim_rk4 described on the sheet, you have to specify
+%       the integrator you want to use. We have provided both rk4_step(2.1)
+%       and euler_step(2.2)
+function [ x_sim ] = sim(t, x0, u, integrator, ode, p)
+% simulates the behaviour of a given ode at given times using the given
+% integrator
+% t:            vector of all times where the ode should be simulated
+% x0:           starting position
+% u:            vector of the applied inputs
+% integrator:   a function handle to the integrator that should be used
+%               e.g. @rk4_step, @euler_step
+% ode:          a function handle to the ODE, e.g. @robot_ode
+% p:            parameters
+
+    x = x0;
+    deltaT = diff(t);
+
+    x_sim = zeros(length(deltaT)+1, size(x0, 1));
+    x_sim(1, :) = x0;
+
+    for i=1:length(deltaT)
+        x = integrator(deltaT(i), x, u(i,:), ode, p);
+        x_sim(i+1, :) = x;
+    end
+
+end
