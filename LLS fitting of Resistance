@@ -1,0 +1,73 @@
+%% load data
+data = load('exercise3_dataset.mat');
+i1 = data.i1;
+u1 = data.u1;
+i2 = data.i2;
+u2 = data.u2;
+%% Plot data
+% Use subplot to plot both data sets and their linear fits (later in b)) in two separate plots, but in the same plotting window
+figure(1)
+plot1 = subplot(2,1,1);
+% code for first plot
+plot(i1,u1,'red')
+title('Reading from source 1')
+xlabel('Current');
+ylabel('Voltage')
+% code for second plot
+hold on
+plot2 = subplot(2,1,2);
+plot(i2,u2,'blue')
+title('Reading From source 2')
+xlabel('Current');
+ylabel('Voltage')
+
+
+
+
+
+%% Compute Linear least squares
+Phi1 = [ones(length(i1),1) i1];         %setting Phi matrix =[1 i1] where i1 is vector containing all value of current
+Phi2 = [ones(length(i2),1) i2];
+
+theta_1=inv(Phi1.'*Phi1)*Phi1.'*u1;     %solved equation for the LLS method
+theta_2=inv(Phi2.'*Phi2)*Phi2.'*u2;
+
+
+
+% Assign the estimated values
+R_est1 = theta_1(2);
+R_est2 = theta_2(2);
+E_est1 = theta_1(1);
+E_est2 = theta_2(1);
+y1=Phi1*theta_1;
+y2=Phi2*theta_2;
+
+%Plot linear fit into the arlier created plot
+subplot(plot1) %using earlier saved handle to plot in the first subplot
+plot(i1,y1,'green')
+legend('Measured','Estimated using LLS');
+
+subplot(plot2) %using earlier saved handle
+hold on
+plot(i2,y2,'yellow')
+legend('Measured','Estimated using LLS');
+
+
+%% Calculate Residuals 
+r1 = u1-y1;
+r2 = u2-y2;
+% Plot histogram of them
+figure(2)
+subplot(1,2,1) % use subplot once again
+hold on
+% code for first histogram
+histogram(r1)
+title('Source 1')
+xlabel('Residual r(k)=u(k)-m(k)');
+
+subplot(1,2,2)
+hold on;
+% code for second histogram
+histogram(r2)
+title('Source 2')
+xlabel('Residual r(k)=u(k)-m(k)');
