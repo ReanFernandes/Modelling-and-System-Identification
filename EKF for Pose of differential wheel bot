@@ -1,0 +1,213 @@
+%% Load data
+load('ex11_data.mat');
+
+% This file contains:
+% P_measured:       the GPS measurements of the location
+% Kappas_measured:  the measurements of the angular velocities.
+% U:                the inputs applied
+
+%% Parameters
+
+N = 200; % number of measurements
+h = 0.05; % euler step size
+
+n_x = 5; % number of states
+n_p = 2; % lenght of a position measurement p
+n_u = 2; % length of input
+
+n_kappa = 2; % length of an angular velocity measurement kappa
+
+% variances of the state noise chi
+var_chi_p     = 1*10^(-3);
+var_chi_beta  = 2*10^(-4);
+var_chi_v     = 1*10^(-6);
+var_chi_omega = 1*10^(-6);
+
+% variances of the measurments gamma 
+var_gamma_p = 10;                  
+var_gamma_kappa = 10^(-6);     
+
+% true and wrong guess for the inital state
+x_0_true  = [0 0 -pi/2 0 0]';
+x_0_wrong = [-4 2 -pi/2 0 0]';
+
+% ... and their respective variances
+var_p_0 = var_gamma_p;
+var_x_0 = 10^(-1);
+
+% ... build into a covariance matrix P_0
+P_0 = [var_p_0.*eye(n_p)   zeros(n_p, n_x-n_p);
+       zeros(n_x-n_p, n_p) var_x_0.*eye(n_x-n_p)];
+
+% mechanical paramters of the robot   
+R = 0.16;
+L = 0.32;
+m = 220;
+I = 9.6;
+Iw = 0.1;
+
+% constants
+c1 = (m + 2*Iw./R^2)^(-1);
+c2 = L.*(I + 2.*L^2.*Iw./R^2)^(-1);
+
+% plotting range
+x_lims = [-5, 5];
+y_lims = [-4, 12];
+
+%% Discrete time model F and its Jacobian 
+%  p1 = x[1], p2 = x[2], beta=x[3], v=x[4], omega=x[5]
+
+% Task 3: Write a function that computes F:
+F = @(x, u) [x(1)+h*x(4)*cos(x(3)); 
+             x(2)+h*x(4)*sin(x(3)); 
+             x(3)+h*x(5); 
+             x(4)+h*c1*((u(1)+u(2))/R); 
+             x(5)+h*c2*((u(1)-u(2))/R)];
+
+
+% Task 3: Write a function that computetes the jacobian of F:
+F_jacobian = @(x, u) [1 0 -h*x(4)*sin(x(3)) h*cos(x(3)) 0;
+                      0 1 h*x(4)*cos(x(3)) h*sin(x(3)) 0;
+                      0 0 1 0 h;
+                      0 0 0 1 0;
+                      0 0 0 0 1];
+
+% Task 2: Complete the covariance matrix for the state noise chi:
+w=[var_chi_p var_chi_p var_chi_beta var_chi_v var_chi_omega]
+W = diag(w);
+                  
+%% Measurement model 1: only p measurements
+% Task 4: Specify matrix C and a covariance matrix V
+C1 = [1 0 0 0 0;
+      0 1 0 0 0];
+V1 = 10*eye(2);
+
+
+%% Meaurement model 2: only kappa measurements
+% Task 4: Specify matrix C and a covariance matrix V
+C2 = [0 0 0 1/R L/R;
+      0 0 0 1/R -L/R];
+V2 = (10^-6)*eye(2);
+
+
+%% Measurement model 3: p and kappa measurements
+% Task 4: Specify matrix C and a covariance matrix V
+C3 = [1 0 0 0 0;
+      0 1 0 0 0;
+      0 0 0 1/R L/R;
+      0 0 0 1/R -L/R]
+v3 = [10 10 10^-6 10^-6];
+V3 = diag(v3);
+
+
+%% Perform State Estimation for different initial values and measurement models
+Cs = {C1, C2, C3};
+Vs = {V1, V2, V3};
+x_0s = {x_0_true, x_0_wrong};
+p_traj = zeros(2, 3, N, n_p); % preallocation
+
+titles = {'p measurements, t_k = ', '\kappa measurements, t_k = ', 'p and \kappa measurements, t_k = '};
+fig_titles = {'True Initial State','Wrong Inital State'};
+
+
+for fig=1:2 % true initial state, wrong intial state
+    figure(fig); % create figures for each case 
+    f = 1; % helper variable for subplots 
+    sgtitle(fig_titles(fig)); % set title for each figure
+    
+    for k=1:3  % three different measurement models
+        
+        x_predict = x_0s{fig};
+        P_predict = P_0;
+        getY = @(i) getMeasurement(i, k, P_measured, Kappas_measured);
+        
+        % Task 5: Estimate the state trajectory
+        for i=1:N %iterate over measurements
+            % get current measurements y and input u from .mat file
+            y = getY(i); 
+            u = U(i, :)';
+            % get C and V for current iteration
+            C = Cs{k};
+            V = Vs{k};
+            
+            % perform the update step:
+            [x_current, P_current] =  update(y, x_predict, P_predict, C, V);
+            
+            % save trajectory
+            p_traj(fig, k, i, :) = x_current(1:2, 1);
+
+            % perform the prediction step
+            [x_predict, P_predict] = predict(x_current, P_current, u, F, F_jacobian, W);
+            
+            % Plot the predictions, measurements and confidence ellipsiods
+            if mod(i, 60) == 5
+               subplot(3,4,f); f = f+1;
+               title([titles{k} num2str(i)]);
+               hold on; xlim(x_lims); ylim(y_lims); grid on;
+
+               p_predict = x_predict(1:2);
+               sigma_p = P_predict(1:2, 1:2);
+
+               % plot the trajectory of the position
+               plot(squeeze(p_traj(fig, k, 1:i, 1)), ...
+                    squeeze(p_traj(fig, k, 1:i, 2)), '.-', 'MarkerSize', 8); 
+               
+               % plot the predicted position for the next step 
+               plot(p_predict(1), p_predict(2), 'o', 'MarkerSize', 5);
+
+               % Confidence ellipsoids
+                [vec,val] = eig(sigma_p); % eigenvalues and eigenvectors
+
+                xy = [cos(linspace(0,2*pi,50)); sin(linspace(0,2*pi,50))];
+                xy_ellipse = p_predict + vec*sqrt(val)*xy;
+
+                plot(xy_ellipse(1,:), xy_ellipse(2,:));
+                
+                % plot the measured position
+                d = scatter(P_measured(1:i, 1), P_measured(1:i, 2), 'filled'); 
+                alpha(d, 0.3)
+            end
+        end
+    end
+end
+
+%% Test predict and update functions
+y_test = ones(2,1);
+x_test = ones(n_x, 1);
+P_test = eye(n_x);
+C_test = ones(2, n_x);
+V_test = eye(2);
+u_test = ones(n_u, 1);
+W_test = eye(n_x);
+
+[x_estimate_test, P_estimate_test] = update(y_test, x_test, P_test, C_test, V_test);
+[x_predict_test, P_predict_test]  = predict(x_test, P_test, u_test, F, F_jacobian, W_test);
+
+%% Task 3: Predict and update functions
+
+function [x_predict, P_predict]  = predict(x_estimate, P_estimate, u, F, F_jacobian, W)
+  % your code goes here:
+    x_predict = F(x_estimate,u);
+  P_predict = F_jacobian(x_estimate,u) * P_estimate * F_jacobian(x_estimate,u)' + W;
+ 
+
+end
+
+function [x_estimate, P_estimate]  = update(y, x_predict, P_predict, C, V)
+  % your code goes here:
+  P_estimate = inv(inv(P_predict) + C'*inv(V)*C);
+  x_estimate = x_predict + P_estimate*(C')*inv(V)*(y - (C*x_predict));
+end
+
+%%  Helper function
+% helps to pick the right measurements (compare with Task 4)
+function [y] = getMeasurement(i, k, P_measured, Kappas_measured)
+    if k == 1
+        y = P_measured(i, :)';
+    elseif k == 2
+        y = Kappas_measured(i, :)';
+    else
+        y = [P_measured(i, :)';
+             Kappas_measured(i, :)'];
+    end
+end
