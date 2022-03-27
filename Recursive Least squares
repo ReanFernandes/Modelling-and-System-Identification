@@ -1,0 +1,166 @@
+%% Task 1: Recursive Least Squares estimation
+load('exercise7_dataset.mat');
+
+dT = 0.0159;
+N = size(XYm,1);
+
+order = 4;
+
+%% a) Fit 4-th order polynomial
+t = [0.0; cumsum(repmat(dT, size(XYm,1)-1, 1))];
+
+Phi = [ones(N,1), t, t.^2, t.^3, t.^4];
+
+theta1 = zeros(order+1,2);
+
+theta1(:, 1) = (Phi.'*Phi)\Phi.'*XYm(:,1);
+theta1(:, 2) = (Phi.'*Phi)\Phi.'*XYm(:,2);
+polyx = Phi*theta1(:, 1);
+polyy = Phi*theta1(:, 2);
+
+% Plot solution
+figure(1);
+subplot(2,1,1); hold on;
+plot(t, polyx);
+plot(t, XYm(:,1), 'o');
+
+subplot(2,1,2); hold on;
+plot(t, polyy);
+plot(t,XYm(:,2), 'o');
+
+figure(2); hold on;
+plot(XYm(:,1), XYm(:,2), 'ok');
+plot(XYm(:,1), XYm(:,2), '-k');
+plot(polyx, polyy, '-b');
+
+%% b) RLS
+
+theta2 = zeros(order+1,2);
+
+Phi = [t.^4, t.^3, t.^2, t, ones(size(t))]';
+
+Q = eye(order+1) * 1e-10;
+
+for k=1:size(XYm,1)
+    
+    nextPhi = Phi(:,k);
+    nextQ = Q + nextPhi*nextPhi';
+    nextTheta = theta2 + nextQ\nextPhi*(XYm(k,:)-nextPhi'*theta2);
+    
+    theta2 = nextTheta;
+    Q = nextQ;
+end
+recFit = theta2' * Phi;
+
+figure(2);
+plot(recFit(1,:), recFit(2,:), '-g');
+legend('Robot location samples', 'Interpolated Robot location', ...
+       '4th order polynomial fit', ...
+       '4th order polynomial fit, recursive implementation');
+
+
+%% c) RLS with forgetting factors
+
+figure(3); hold on;
+plot(XYm(:,1), XYm(:,2), 'ok', 'DisplayName', 'robot location samples');
+
+theta3 = zeros(order+1,2);
+Phi = [t.^4, t.^3, t.^2, t, ones(size(t))]';
+
+Q = eye(order+1) * 1e-10;
+
+alpha = [0.85];
+alpha = [alpha, 0.9];
+
+for n=1:length(alpha)
+    for k=1:size(XYm,1)
+        
+       nextPhi = Phi(:,k);
+        nextQ = alpha(n)*Q + nextPhi*nextPhi';
+        nextTheta = theta3 + nextQ\nextPhi*(XYm(k,:)-nextPhi'*theta3);
+        theta3 = nextTheta;
+        Q = nextQ;
+    end
+    recFit = theta3' * Phi;
+   
+    plot(recFit(1,:), recFit(2,:), ...
+        'DisplayName', sprintf('fit with \\alpha = %.3f', alpha(n))); % fitted curve  
+end
+
+xlim([-5, 5]); ylim([-5, 5]);
+legend;
+
+%% d) ones-step-ahead-prediction + confidence ellipsoid
+figure(4); hold on; grid on;
+
+theta4 = zeros(order+1,2);
+Phi = [t.^4, t.^3, t.^2, t, ones(size(t))]';
+
+Qx = eye(order+1) * 1e-10;
+Qy = Qx; 
+
+alphax = 0.85;
+alphay = 0.78;
+
+predictions = zeros(size(XYm));
+
+ks = [3, 20, 50, 75];
+
+count = 0;
+
+for k=1:size(XYm,1)
+
+     nextPhi = Phi(:,k);
+    
+    nextQx = alphax*Qx + nextPhi*nextPhi';
+    nextQy = alphay*Qy + nextPhi*nextPhi';
+    
+    nextTheta(:,1) = theta4(:,1) + nextQx\nextPhi*(XYm(k,1)-nextPhi'*theta4(:,1));
+    nextTheta(:,2) = theta4(:,2) + nextQy\nextPhi*(XYm(k,2)-nextPhi'*theta4(:,2));
+    
+    nextPoint = nextPhi' * theta4;
+    predictions(k,:) = nextPoint;
+    
+    recFit = theta4' * Phi(:, 1:k);
+    theta4 = nextTheta;
+    Qx = nextQx;
+    Qy = nextQy;
+    
+    if ismember(k,ks)
+        
+        count = count +1;
+        
+        subplot(length(ks)./2, 2, count); grid on; hold on;
+        
+        plot(XYm(:,1), XYm(:,2),'ok');
+        
+        plot(recFit(1, :), recFit(2, :), '-');
+        
+        plot(XYm(1:k, 1), XYm(1:k, 2), 'xk')
+        plot(XYm(k+1, 1), XYm(k+1, 2), 'xr')
+        
+        plot(nextPoint(1), nextPoint(2), 'x')
+        
+        xlim([-4, 4]); ylim([-4, 4]);
+
+        sigX = nextPhi.'*inv(Qx)*nextPhi;
+        sigY = nextPhi.'*inv(Qy)*nextPhi;
+        sig=[sigX,sigY];
+        sig=diag(sig);
+
+        % Confidence ellipsoids
+        [V,D] = eig(sig); % eigenvalues and eigenvectors
+
+        xy = [cos(linspace(0,2*pi,50)); sin(linspace(0,2*pi,50))];
+        xy_ellipse = nextPoint'*ones(1,50) + V*sqrt(D)*xy;
+        
+        plot(xy_ellipse(1,:), xy_ellipse(2,:));
+        
+        legend('all data', 'current fit', 'available data', ...
+               'next datapoint', 'prediction', 'confidence ellipsoid', ...
+               'Location', 'southeast');
+        title(sprintf('timestep %d', k));
+    end
+end
+
+
