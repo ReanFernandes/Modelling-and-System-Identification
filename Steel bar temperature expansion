@@ -1,0 +1,47 @@
+% Exercise 1: Statistics and analyzing estimators
+
+deltaT = [5; 15; 35; 60];
+L = [6.55; 9.63; 17.24; 29.64];
+
+% (a) Plot the data
+figure(1)
+hold on
+
+xlabel('\DeltaT (s)')
+ylabel('Length(cm)')
+plot(deltaT,L,'x',LineStyle='none');
+
+% (b) Experimental values of L_0 and A:
+
+one=ones(1,length(deltaT)).';    % making a N*1 matrix of ones tto fit phi
+phi=[deltaT one];               % phi is of N*2 size for 1st order polynomial fit ie to get theta1+detlaT*theta2                           %variable renaming to bring it to manuscript equation form
+theta=inv(phi.'*phi)*phi.'*L ;    %solution for least value of LLS method
+A=theta(1);                     %value of parameters 
+L_0=theta(2);
+
+% (c) Fit third order polynomial to data
+
+chi=[deltaT.^3 deltaT.^2 deltaT one];   %creating regression matrix for 3rd order polynomial fit
+poly_coeffs=((chi.'*chi)\chi.'*L).';     %applying solution for LLS method again
+z=polyval(poly_coeffs,deltaT);
+
+plot(deltaT,z,"red",Marker='x',LineStyle='none')
+legend('Plotted points','3rd order Polynomial Fit')
+
+
+
+% (d) Validate fits with additional measurement
+deltaT_val = 70;
+L_val = 32.89;
+deltaT=[deltaT.' deltaT_val];   % add measurements to the table
+L=[L.' L_val]; 
+hold on                         %plot the measurements
+xlabel('\DeltaT (s)')
+ylabel('Length(cm)')
+plot(deltaT,L,'x');
+z=polyval(poly_coeffs,deltaT);
+plot(deltaT,z,"red",Marker='x',LineStyle='none')            %plot polynomial with prediction for new measurement 
+legend('Plotted points','3rd order Polynomial Fit')
+hold off
+
+
