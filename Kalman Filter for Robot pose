@@ -1,0 +1,151 @@
+%% Load data
+
+load('ex9_data.mat');
+
+%% Parameters
+
+N = 100;
+
+n_x = 6;
+
+n_p = 2;
+n_v = n_p;
+n_a = n_p;
+
+h = 0.5;
+
+mu_1 = 0.1;
+mu_2 = 10^(-2);
+
+x_0 = zeros(n_x, 1);
+
+var_chi_p = 2*10^(-2);
+var_chi_v = 4*10^(-3);
+var_chi_a = 1*10^(-8);
+
+var_gamma_p = 16;               % std of noise on position measurement 
+var_gamma_a = 2.25.*10^(-6);    % std of noise on acceleration measurement
+
+var_0 = 10^(-5);
+
+  
+A = [1 0 h 0 0 0;
+     0 1 0 h 0 0;
+     0 0 1 0 h 0;
+     0 0 0 1 0 h;
+     0 0 -h * mu_1 0 1 0;
+     0 0 0 -h * mu_2 0 1];
+B = [0 0; 0 0; 0 0; 0 0; h -h; h h];
+
+%% State estimates and predictions with position measurements only
+C = [1 0 0 0 0 0;
+     0 1 0 0 0 0];
+
+V = diag([var_gamma_p, var_gamma_p]);
+
+W = diag([var_chi_p, var_chi_p, var_chi_v,...
+    var_chi_v, var_chi_a, var_chi_a]);
+
+x_predict = A*x_0;
+P_predict = A*diag([var_0, var_0, var_0, var_0, var_0, var_0])*A';
+
+
+p_traj = zeros(N, n_p);
+
+f = 1;
+figure(1);
+for i=1:N
+ y = P_measured(i, :)';
+    b = B * U(i, :)';
+    [x_estimate, P_estimate] = update(y, x_predict, P_predict, C, V);
+    
+    p_traj(i, :) = x_estimate(1:2, 1);
+    
+    [x_predict, P_predict] = predict(x_estimate, P_estimate, A, b, W);
+    
+    if mod(i, 30) == 10
+       subplot(2,4,f); f = f+1;
+       title(['GPS, t_k = ', num2str(i)]);
+       hold on; xlim([-9,9]); ylim([-6, 9]);
+       
+       p_predict = x_predict(1:2);
+       
+  sigma_p = P_predict(1:2, 1:2);
+       
+       plot(p_traj(1:i,1), p_traj(1:i, 2), 'x-');
+       plot(p_predict(1), p_predict(2), 'o', 'MarkerSize', 5);
+       
+       % Confidence ellipsoids
+        [vec,val] = eig(sigma_p); % eigenvalues and eigenvectors
+
+        xy = [cos(linspace(0,2*pi,50)); sin(linspace(0,2*pi,50))];
+        xy_ellipse = p_predict + vec*sqrt(val)*xy;
+        
+        plot(xy_ellipse(1,:), xy_ellipse(2,:));
+    end
+    
+end
+C_ = [1 0 0 0 0 0;
+      0 1 0 0 0 0;
+      0 0 0 0 1 0;
+      0 0 0 0 0 1];
+V_ = diag([var_gamma_p, var_gamma_p, var_gamma_a, var_gamma_a]);
+ 
+x_predict = x_0;
+P_predict = diag([var_0, var_0, var_0, var_0, var_0, var_0]);
+
+p_traj_ = zeros(N, n_p);
+
+for i=1:N
+   y = [P_measured(i, :) A_measured(i, :)]';
+     
+    b = B * U(i, :)'; 
+    
+    [x_estimate, P_estimate] = update(y, x_predict, P_predict, C_, V_);
+    
+    p_traj_(i, :) = x_estimate(1:2, 1);
+    
+    [x_predict, P_predict] = predict(x_estimate, P_estimate, A, b, W);
+    
+    if mod(i, 30) == 10
+       subplot(2,4,f); f = f+1;
+       title(['GPS + IMU, t_k = ', num2str(i)]);
+       hold on; xlim([-9,9]); ylim([-6, 9]);
+       
+  p_predict = x_predict(1:2);
+       sigma_p_ = P_predict(1:2, 1:2);
+       plot(p_traj_(1:i,1), p_traj_(1:i, 2), 'x-');
+       plot(p_predict(1), p_predict(2), 'o', 'MarkerSize', 5);
+       
+       % Confidence ellipsoids
+        [vec,val] = eig(sigma_p_); % eigenvalues and eigenvectors
+
+        xy = [cos(linspace(0,2*pi,50)); sin(linspace(0,2*pi,50))];
+        xy_ellipse = p_predict + vec*sqrt(val)*xy;
+        
+        plot(xy_ellipse(1,:), xy_ellipse(2,:));
+    end 
+end
+
+%% Test predict and update functions
+x_test = ones(n_x, 1);
+P_test = 0.1.*eye(n_x);
+
+y_test = ones(n_p, 1);
+
+[x_predict_test, P_predict_test] = predict(x_test, P_test, A, b, W);
+[x_estimate_test, P_estimate_test] = update(y_test, x_test, P_test, C, V);
+
+%% Predict and Update
+function [x_predict, P_predict]  = predict(x_estimate, P_estimate, A, b, W)
+  
+ x_predict = A * x_estimate + b;
+  P_predict = A * P_estimate * A' + W;
+end
+
+function [x_estimate, P_estimate]  = update(y, x_predict, P_predict, C, V)
+  P_estimate = inv(inv(P_predict) + (C' * inv(V) * C));
+  x_estimate = x_predict + P_estimate * C' * inv(V) * (y - C * x_predict);
+
+  
+end
