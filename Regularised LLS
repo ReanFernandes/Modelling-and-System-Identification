@@ -1,0 +1,102 @@
+function result = ex5(X, Y)
+
+%% Setup
+alphas = [0, 10e-6, 10e-5, 1];
+
+N_alpha = length(alphas);
+
+order = 7;
+
+N_theta = order+1;   % number of parameters
+
+N_e = size(X, 1);    % number of students/experiments
+N_m = size(X, 2);    % number of measurements per experiment
+
+%% x and Phi used for plots
+
+xs = linspace(0,1, 200);
+PhiTest = ones(200, order+1);
+
+for o=1:order
+    PhiTest(:, o+1) = xs'.^o;
+end
+
+%% Single experiment
+
+Phi = zeros(N_m, N_theta);
+for n=1:N_theta
+    Phi(:,n) = X(1,:)'.^(n-1);
+end
+
+thetas_single = zeros(N_alpha, N_theta);
+thetas_single_norm = zeros(N_alpha, 1);
+R_squared = zeros(N_alpha,1);
+
+figure(1); hold on; grid on;
+
+plot(X(1, :), Y(1, :), 'x');
+xlim([0,1]); ylim([-7,7]);
+xlabel('X'); ylabel('Y');
+
+for a=1:N_alpha
+    alphaI = alphas(a);
+    
+    theta = (Phi' * Phi + alphaI * eye(order+1))\(Phi' * Y(1,:)');
+    thetas_single(a,:) = theta;
+    thetas_single_norm(a) = norm(theta,2);
+    R_squared(a) = 1 - ((norm(Y(1,:)' - Phi*theta))/norm(Y(1,:)))^2; 
+    
+    plot(xs, PhiTest*theta, '-');
+end
+
+legend('data', 'no regularization', 'small regularization', 'strong regularization', ...
+       'very strong regularization', 'Location', 'southwest');
+
+%% Multiple Experiments
+
+thetas = zeros(N_alpha, N_e, N_theta);
+thetas_mean = zeros(4, 8);
+    
+figure(2);
+titles = {'no regularization', 'small regularization', ...
+          'strong regularization', 'very strong'};
+
+for a=1:N_alpha
+    
+    alphaI = alphas(a);
+    theta_mean = 0;
+        
+    subplot(N_alpha, 2, 2*a - 1); hold on; grid on;
+    title(titles{a});
+    ylim([-6, 6]); xlim([0, 1]);
+    
+    for k=1:N_e
+        Phi = zeros(N_m, N_theta);
+        for n=1:N_theta
+            Phi(:,n) = X(k,:)'.^(n-1);
+        end
+
+        theta = (Phi' * Phi + alphaI * eye(order+1))\(Phi' * Y(k,:)');
+        theta_mean = theta_mean + (1/N_e)*theta;
+        
+        thetas(a, k, :) = theta;
+        plot(xs, PhiTest*theta, '-');  
+    end
+    
+    subplot(N_alpha, 2, 2*a); hold on; grid on;
+    title(titles{a});
+    ylim([-6, 6]); xlim([0, 1]);
+    
+ 
+
+    thetas_mean(a, :) = theta_mean;
+    
+    plot(xs, PhiTest*theta_mean, '-');
+end
+
+result = struct('thetas_single', thetas_single, ...
+                'thetas_single_norm', thetas_single_norm, ...
+                'R_squared', R_squared, ...
+                'thetas', thetas, ...
+                'thetas_mean', thetas_mean)
+end
